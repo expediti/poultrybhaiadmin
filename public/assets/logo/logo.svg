@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 64" fill="none">
+  <rect width="280" height="64" rx="12" fill="#F8FAFC"/>
+  <!-- Logo Mark -->
+  <g transform="translate(16, 12)">
+    <rect width="40" height="40" rx="10" fill="#E65100"/>
+    <path d="M20 10C24 10 27 13 27 17C27 21 24 24 20 24C16 24 13 21 13 17C13 13 16 10 20 10Z" fill="#FFF9C4"/>
+    <path d="M26 15L31 17L26 19V15Z" fill="#FFA000"/>
+    <path d="M19 12C19 10.5 20.5 9 22 9C23.5 9 25 10.5 25 12" stroke="#D84315" stroke-width="2" stroke-linecap="round"/>
+    <path d="M14 24C14 28 17 31 21 31H26C27.5 31 28 29.5 27 28C26 26.5 24 26 23 25" fill="#FFF9C4"/>
+    <path d="M18 31V35M23 31V35" stroke="#FFA000" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <!-- Text Brand -->
+  <text x="68" y="32" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="20" font-weight="800" fill="#1E293B" letter-spacing="-0.5">POULTRY<tspan fill="#E65100"> BHAI</tspan></text>
+  <text x="69" y="46" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="9" font-weight="600" fill="#64748B" letter-spacing="1.5">FARM SUPPLIES &amp; CARE</text>
+</svg>

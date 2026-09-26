@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+  <rect width="600" height="600" fill="#DCFCE7"/>
+  <circle cx="300" cy="270" r="168.00000000000003" fill="white" opacity="0.85"/>
+  <text x="300" y="280" font-size="96" text-anchor="middle" dominant-baseline="middle">💊</text>
+  <rect x="48" y="432" width="504" height="132" rx="12" fill="white" filter="drop-shadow(0 4px 6px rgba(0,0,0,0.06))"/>
+  <text x="300" y="480" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#15803D" text-anchor="middle">Supplements & Care</text>
+  <text x="300" y="528" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="500" fill="#64748B" text-anchor="middle">Vitamins, Tonics & Minerals</text>
+</svg>
