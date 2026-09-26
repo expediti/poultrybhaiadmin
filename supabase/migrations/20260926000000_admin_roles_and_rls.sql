@@ -2,17 +2,38 @@
 -- POULTRY BHAI — ADMIN PRIVILEGES, ROLES & RLS POLICIES MIGRATION
 -- Migration: 20260926000000_admin_roles_and_rls.sql
 -- ====================================================================
--- This migration enables secure administration of the existing Poultry Bhai
--- database without putting any service_role or secret key in the browser.
+-- This migration establishes the private administrator authorization
+-- infrastructure for Poultry Bhai without dropping, altering, or recreating
+-- any existing customer tables or modifying public customer RLS policies.
 -- Customer storefront security is 100% preserved.
 -- ====================================================================
 
--- 1. Create Admin Registry
+-- 1. Create Admin Registry with Email Restriction
 CREATE TABLE IF NOT EXISTS public.admin_users (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('super_admin', 'admin', 'manager')),
+    email TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL DEFAULT 'super_admin' CHECK (role IN ('super_admin', 'admin', 'manager')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+-- Safely add email column if admin_users was created in an earlier step without it
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'admin_users' 
+          AND column_name = 'email'
+    ) THEN
+        ALTER TABLE public.admin_users ADD COLUMN email TEXT;
+        UPDATE public.admin_users a
+        SET email = lower(u.email)
+        FROM auth.users u
+        WHERE a.user_id = u.id;
+        ALTER TABLE public.admin_users ALTER COLUMN email SET NOT NULL;
+        ALTER TABLE public.admin_users ADD CONSTRAINT admin_users_email_key UNIQUE (email);
+    END IF;
+END $$;
 
 ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
 
@@ -21,64 +42,70 @@ CREATE POLICY "Admins can view admin_users"
     ON public.admin_users FOR SELECT
     USING (auth.uid() = user_id);
 
--- Helper function to check admin status
+-- 2. Server-side Helper Function to Check Admin Privileges
+-- Verifies that auth.uid() exists in admin_users AND matches the authenticated account email
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean AS $$
 BEGIN
     RETURN EXISTS (
-        SELECT 1 FROM public.admin_users
-        WHERE user_id = auth.uid()
+        SELECT 1 
+        FROM public.admin_users a
+        JOIN auth.users u ON u.id = a.user_id
+        WHERE a.user_id = auth.uid()
+          AND lower(u.email) = lower(a.email)
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
--- 2. PRODUCTS: Admin Full Access (Read Inactive, Create, Update, Delete)
+-- 3. PRODUCTS: Admin Full Access (Create, Read inactive, Update, Delete)
+-- Note: Existing customer policy ("Anyone can view active products") remains 100% active.
 DROP POLICY IF EXISTS "Admins have full access to products" ON public.products;
 CREATE POLICY "Admins have full access to products"
     ON public.products FOR ALL
     USING (public.is_admin())
     WITH CHECK (public.is_admin());
 
--- 3. CATEGORIES: Admin Full Access
+-- 4. CATEGORIES: Admin Full Access
+-- Note: Existing customer policy ("Anyone can view active categories") remains 100% active.
 DROP POLICY IF EXISTS "Admins have full access to categories" ON public.categories;
 CREATE POLICY "Admins have full access to categories"
     ON public.categories FOR ALL
     USING (public.is_admin())
     WITH CHECK (public.is_admin());
 
--- 4. PRODUCT IMAGES: Admin Full Access
+-- 5. PRODUCT IMAGES: Admin Full Access
 DROP POLICY IF EXISTS "Admins have full access to product_images" ON public.product_images;
 CREATE POLICY "Admins have full access to product_images"
     ON public.product_images FOR ALL
     USING (public.is_admin())
     WITH CHECK (public.is_admin());
 
--- 5. ORDERS: Admin Full Access (View all customer orders, update statuses)
+-- 6. ORDERS: Admin Full Access (View all customer orders, update statuses)
 DROP POLICY IF EXISTS "Admins can view and update all orders" ON public.orders;
 CREATE POLICY "Admins can view and update all orders"
     ON public.orders FOR ALL
     USING (public.is_admin())
     WITH CHECK (public.is_admin());
 
--- 6. ORDER ITEMS: Admin Full Access
+-- 7. ORDER ITEMS: Admin Full Access
 DROP POLICY IF EXISTS "Admins can view all order items" ON public.order_items;
 CREATE POLICY "Admins can view all order items"
     ON public.order_items FOR SELECT
     USING (public.is_admin());
 
--- 7. PROFILES: Admin Can View Customer Profiles
+-- 8. PROFILES: Admin Can View All Profiles
 DROP POLICY IF EXISTS "Admins can view all profiles" ON public.profiles;
 CREATE POLICY "Admins can view all profiles"
     ON public.profiles FOR SELECT
     USING (public.is_admin());
 
--- 8. ADDRESSES: Admin Can View Customer Addresses
+-- 9. ADDRESSES: Admin Can View All Addresses
 DROP POLICY IF EXISTS "Admins can view all addresses" ON public.addresses;
 CREATE POLICY "Admins can view all addresses"
     ON public.addresses FOR SELECT
     USING (public.is_admin());
 
--- 9. INVENTORY TRANSACTIONS: Admin Can View & Insert
+-- 10. INVENTORY TRANSACTIONS: Admin Can View & Insert
 DROP POLICY IF EXISTS "Admins can view inventory transactions" ON public.inventory_transactions;
 CREATE POLICY "Admins can view inventory transactions"
     ON public.inventory_transactions FOR SELECT
@@ -89,7 +116,7 @@ CREATE POLICY "Admins can insert inventory transactions"
     ON public.inventory_transactions FOR INSERT
     WITH CHECK (public.is_admin());
 
--- 10. ATOMIC STOCK ADJUSTMENT RPC (Ensures stock and ledger stay 100% in sync)
+-- 11. ATOMIC STOCK ADJUSTMENT RPC (Keeps product stock and ledger in lock-step)
 CREATE OR REPLACE FUNCTION public.admin_adjust_stock(
     p_product_id UUID,
     p_quantity_change INT,
@@ -142,3 +169,34 @@ BEGIN
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 12. HELPER FUNCTION TO AUTHORIZE YOUR ADMIN EMAIL IN ONE STEP
+CREATE OR REPLACE FUNCTION public.register_admin_email(p_email TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_user RECORD;
+BEGIN
+    SELECT id, email INTO v_user
+    FROM auth.users
+    WHERE lower(email) = lower(trim(p_email));
+
+    IF NOT FOUND THEN
+        RETURN 'Error: No Supabase Auth account found for email: ' || p_email || '. Please create your email + password user in Supabase Dashboard (Authentication -> Users -> Add User) first.';
+    END IF;
+
+    INSERT INTO public.admin_users (user_id, email, role)
+    VALUES (v_user.id, lower(v_user.email), 'super_admin')
+    ON CONFLICT (user_id) DO UPDATE
+    SET email = EXCLUDED.email, role = EXCLUDED.role;
+
+    RETURN 'SUCCESS: Authorized ' || v_user.email || ' as super_admin in public.admin_users.';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ====================================================================
+-- INSTRUCTIONS TO ACTIVATE YOUR ADMIN ACCESS:
+-- 1. Create your admin user in Supabase Dashboard -> Authentication -> Users -> "Add User" (Create user with email + password).
+-- 2. Run this migration in your Supabase SQL Editor.
+-- 3. In the SQL Editor, execute:
+--    SELECT public.register_admin_email('YOUR_EMAIL@EXAMPLE.COM');
+-- ====================================================================

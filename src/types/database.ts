@@ -149,6 +149,7 @@ export interface InventoryTransaction {
 
 export interface AdminUser {
   user_id: string;
+  email?: string;
   role: 'super_admin' | 'admin' | 'manager';
   created_at: string;
 }

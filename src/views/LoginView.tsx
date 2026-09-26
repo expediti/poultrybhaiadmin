@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Lock, Mail, ShieldAlert, ArrowRight, Sun, Moon, AlertCircle, KeyRound, Terminal } from 'lucide-react';
+import { Lock, Mail, ShieldAlert, ArrowRight, Sun, Moon, AlertCircle, KeyRound, Terminal, UserCheck } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { useTheme } from '../context/ThemeContext';
 
 export const LoginView: React.FC = () => {
-  const { signIn, isConfigured } = useAdminAuth();
+  const { signIn, isConfigured, configuredAdminEmail } = useAdminAuth();
   const { theme, toggleTheme } = useTheme();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(configuredAdminEmail || '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -64,7 +64,7 @@ export const LoginView: React.FC = () => {
         }}
       >
         {/* Brand header */}
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
           <div
             style={{
               width: '46px',
@@ -86,8 +86,28 @@ export const LoginView: React.FC = () => {
             Poultry Bhai Admin
           </h1>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-            Live Supabase Storefront Operations
+            Private Owner Portal & Catalog Management
           </p>
+
+          {configuredAdminEmail && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                fontSize: '0.74rem',
+                color: 'var(--primary)',
+                background: 'rgba(16, 185, 129, 0.08)',
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+                padding: '0.25rem 0.65rem',
+                borderRadius: '999px',
+                marginTop: '0.75rem',
+              }}
+            >
+              <UserCheck size={13} />
+              <span>Authorized Admin: {configuredAdminEmail}</span>
+            </div>
+          )}
         </div>
 
         {/* If Supabase is NOT configured, show clear configuration requirement */}
@@ -156,7 +176,7 @@ export const LoginView: React.FC = () => {
                   margin: 0,
                 }}
               >
-                {`VITE_SUPABASE_URL=https://your-project.supabase.co\nVITE_SUPABASE_ANON_KEY=your-anon-key`}
+                {`VITE_SUPABASE_URL=https://your-project.supabase.co\nVITE_SUPABASE_ANON_KEY=your-anon-key\nVITE_ADMIN_EMAIL=your-owner-email@example.com`}
               </pre>
               <p
                 style={{
@@ -213,7 +233,7 @@ export const LoginView: React.FC = () => {
                     type="email"
                     className="form-input"
                     style={{ paddingLeft: '2.4rem' }}
-                    placeholder="admin@poultrybhai.com"
+                    placeholder="owner@poultrybhai.com"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -238,7 +258,7 @@ export const LoginView: React.FC = () => {
                     type="password"
                     className="form-input"
                     style={{ paddingLeft: '2.4rem' }}
-                    placeholder="Enter password"
+                    placeholder="Enter Supabase account password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

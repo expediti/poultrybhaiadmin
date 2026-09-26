@@ -16,19 +16,21 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import { useToast } from '../context/ToastContext';
 
 export const SettingsView: React.FC = () => {
-  const { user, adminRole } = useAdminAuth();
+  const { user, adminRole, configuredAdminEmail } = useAdminAuth();
   const { theme, setTheme } = useTheme();
   const toast = useToast();
   const [copied, setCopied] = useState(false);
 
   const migrationSql = `-- ====================================================================
--- POULTRY BHAI — ADMIN PRIVILEGES & RLS POLICIES MIGRATION
--- Run this in your Supabase Project SQL Editor
+-- POULTRY BHAI — ADMIN PRIVILEGES, ROLES & RLS POLICIES MIGRATION
+-- Migration: 20260926000000_admin_roles_and_rls.sql
 -- ====================================================================
 
+-- 1. Create Admin Registry with Email Restriction
 CREATE TABLE IF NOT EXISTS public.admin_users (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('super_admin', 'admin', 'manager')),
+    email TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL DEFAULT 'super_admin' CHECK (role IN ('super_admin', 'admin', 'manager')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
@@ -39,30 +41,47 @@ CREATE POLICY "Admins can view admin_users"
     ON public.admin_users FOR SELECT
     USING (auth.uid() = user_id);
 
+-- 2. Server-side Helper Function to Check Admin Privileges
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean AS $$
 BEGIN
     RETURN EXISTS (
-        SELECT 1 FROM public.admin_users
-        WHERE user_id = auth.uid()
+        SELECT 1 
+        FROM public.admin_users a
+        JOIN auth.users u ON u.id = a.user_id
+        WHERE a.user_id = auth.uid()
+          AND lower(u.email) = lower(a.email)
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
--- Admin policies across core tables
-CREATE POLICY "Admins have full access to products" ON public.products FOR ALL USING (public.is_admin());
-CREATE POLICY "Admins have full access to categories" ON public.categories FOR ALL USING (public.is_admin());
-CREATE POLICY "Admins have full access to orders" ON public.orders FOR ALL USING (public.is_admin());
+-- 3. Core Admin Policies (Products, Categories, Orders, Inventory)
+CREATE POLICY "Admins have full access to products" ON public.products FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins have full access to categories" ON public.categories FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins have full access to product_images" ON public.product_images FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can view and update all orders" ON public.orders FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
 CREATE POLICY "Admins can view all order items" ON public.order_items FOR SELECT USING (public.is_admin());
 CREATE POLICY "Admins can view all profiles" ON public.profiles FOR SELECT USING (public.is_admin());
 CREATE POLICY "Admins can view all addresses" ON public.addresses FOR SELECT USING (public.is_admin());
 CREATE POLICY "Admins can view inventory transactions" ON public.inventory_transactions FOR SELECT USING (public.is_admin());
 CREATE POLICY "Admins can insert inventory transactions" ON public.inventory_transactions FOR INSERT WITH CHECK (public.is_admin());
 
--- To grant your current Supabase user admin rights, run:
--- INSERT INTO public.admin_users (user_id, role)
--- VALUES ('<YOUR_SUPABASE_AUTH_USER_ID>', 'super_admin')
--- ON CONFLICT (user_id) DO NOTHING;`;
+-- 4. Helper function to authorize your owner email in one command
+CREATE OR REPLACE FUNCTION public.register_admin_email(p_email TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_user RECORD;
+BEGIN
+    SELECT id, email INTO v_user FROM auth.users WHERE lower(email) = lower(trim(p_email));
+    IF NOT FOUND THEN
+        RETURN 'Error: User not found in auth.users for ' || p_email || '. Create user in Supabase Auth first.';
+    END IF;
+    INSERT INTO public.admin_users (user_id, email, role)
+    VALUES (v_user.id, lower(v_user.email), 'super_admin')
+    ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, role = EXCLUDED.role;
+    RETURN 'SUCCESS: Authorized ' || v_user.email || ' as super_admin.';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;`;
 
   const copySql = () => {
     navigator.clipboard.writeText(migrationSql);
@@ -128,6 +147,15 @@ CREATE POLICY "Admins can insert inventory transactions" ON public.inventory_tra
             </div>
             <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#34D399', textTransform: 'uppercase', marginTop: '0.2rem' }}>
               {adminRole || 'SUPER ADMIN'}
+            </div>
+          </div>
+
+          <div style={{ padding: '1rem', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+              Authorized Owner Email (ENV)
+            </div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '0.2rem' }}>
+              {configuredAdminEmail || 'Not restricted (VITE_ADMIN_EMAIL unset)'}
             </div>
           </div>
         </div>
