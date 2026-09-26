@@ -7,13 +7,17 @@ import {
   User,
   Terminal,
   Lock,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useToast } from '../context/ToastContext';
 
 export const SettingsView: React.FC = () => {
   const { user, adminRole } = useAdminAuth();
+  const { theme, setTheme } = useTheme();
   const toast = useToast();
   const [copied, setCopied] = useState(false);
 
@@ -126,6 +130,77 @@ CREATE POLICY "Admins can insert inventory transactions" ON public.inventory_tra
               {adminRole || 'SUPER ADMIN'}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Appearance / Theme Mode */}
+      <div className="card-panel">
+        <div className="card-panel-header">
+          <div className="card-panel-title">
+            {theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
+            <span>Interface Theme Appearance</span>
+          </div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Active: <strong>{theme === 'dark' ? 'Pitch Black' : 'Clean White'}</strong>
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <button
+            type="button"
+            onClick={() => setTheme('dark')}
+            style={{
+              padding: '1.25rem',
+              background: '#000000',
+              border: theme === 'dark' ? '2px solid #FFFFFF' : '1px solid #222222',
+              borderRadius: 'var(--radius-md)',
+              color: '#FFFFFF',
+              textAlign: 'left',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.5rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700 }}>
+                <Moon size={16} />
+                <span>Pitch Black Mode</span>
+              </div>
+              {theme === 'dark' && <Check size={16} color="#10B981" />}
+            </div>
+            <p style={{ fontSize: '0.78rem', color: '#888888', margin: 0 }}>
+              Pure black background, high contrast, clean minimalist styling.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme('light')}
+            style={{
+              padding: '1.25rem',
+              background: '#FFFFFF',
+              border: theme === 'light' ? '2px solid #000000' : '1px solid #D4D4D8',
+              borderRadius: 'var(--radius-md)',
+              color: '#09090B',
+              textAlign: 'left',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.5rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700 }}>
+                <Sun size={16} />
+                <span>Clean White Mode</span>
+              </div>
+              {theme === 'light' && <Check size={16} color="#059669" />}
+            </div>
+            <p style={{ fontSize: '0.78rem', color: '#71717A', margin: 0 }}>
+              Bright clean white surfaces, crisp grey dividers, day-friendly.
+            </p>
+          </button>
         </div>
       </div>
 

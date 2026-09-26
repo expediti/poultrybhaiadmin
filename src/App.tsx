@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
 import { ToastProvider, useToast } from './context/ToastContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { AdminSidebar, type AdminTab } from './components/layout/AdminSidebar';
 import { AdminHeader } from './components/layout/AdminHeader';
 import { DashboardView } from './views/DashboardView';
@@ -227,10 +228,12 @@ const AdminAppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <AdminAuthProvider>
-      <ToastProvider>
-        <AdminAppContent />
-      </ToastProvider>
-    </AdminAuthProvider>
+    <ThemeProvider>
+      <AdminAuthProvider>
+        <ToastProvider>
+          <AdminAppContent />
+        </ToastProvider>
+      </AdminAuthProvider>
+    </ThemeProvider>
   );
 }

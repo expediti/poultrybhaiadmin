@@ -1,5 +1,6 @@
-import { Search, ExternalLink, RefreshCw } from 'lucide-react';
+import { Search, ExternalLink, RefreshCw, Sun, Moon } from 'lucide-react';
 import { useAdminAuth } from '../../context/AdminAuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import type { AdminTab } from './AdminSidebar';
 
 interface AdminHeaderProps {
@@ -27,6 +28,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   onOpenSettings,
 }) => {
   const { user, adminRole, isDemoMode } = useAdminAuth();
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <header className="admin-header">
@@ -55,6 +57,16 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
             <RefreshCw size={16} />
           </button>
         )}
+
+        {/* Theme Switcher */}
+        <button
+          className="theme-switch-btn"
+          onClick={toggleTheme}
+          title={`Switch to ${theme === 'dark' ? 'Clean White' : 'Pitch Black'} mode`}
+        >
+          {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+          <span>{theme === 'dark' ? 'White Theme' : 'Pitch Black'}</span>
+        </button>
 
         {/* Backend Status Pill */}
         <div

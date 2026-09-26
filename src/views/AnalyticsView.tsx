@@ -207,7 +207,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                         {p.name}
                       </div>
                       <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                        SKU: {p.sku} • {p.unitsSold} units ordered
+                        SKU: {p.sku} | {p.unitsSold} units ordered
                       </div>
                     </div>
                   </div>

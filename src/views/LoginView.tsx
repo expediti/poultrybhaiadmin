@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Lock, Mail, ShieldAlert, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, ShieldAlert, ArrowRight, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 export const LoginView: React.FC = () => {
   const { signIn, loginAsDemoAdmin } = useAdminAuth();
+  const { theme, toggleTheme } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,49 +32,61 @@ export const LoginView: React.FC = () => {
     <div
       style={{
         minHeight: '100vh',
-        background: 'radial-gradient(ellipse at top, #1E293B 0%, #0B0F19 100%)',
+        backgroundColor: 'var(--bg-main)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '1.5rem',
+        position: 'relative',
       }}
     >
+      {/* Top right theme toggle */}
+      <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem' }}>
+        <button
+          className="theme-switch-btn"
+          onClick={toggleTheme}
+          title={`Switch to ${theme === 'dark' ? 'Clean White' : 'Pitch Black'} mode`}
+        >
+          {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+          <span>{theme === 'dark' ? 'White Theme' : 'Pitch Black'}</span>
+        </button>
+      </div>
+
       <div
         style={{
           width: '100%',
-          maxWidth: '440px',
-          background: '#1E293B',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: 'var(--radius-xl)',
-          padding: '2.5rem',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+          maxWidth: '420px',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-md)',
+          padding: '2.25rem',
+          boxShadow: 'var(--shadow-lg)',
         }}
       >
         {/* Brand header */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div
             style={{
-              width: '54px',
-              height: '54px',
-              borderRadius: 'var(--radius-lg)',
-              background: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
-              color: '#FFF',
+              width: '44px',
+              height: '44px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--text-main)',
+              color: 'var(--bg-main)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontWeight: 900,
-              fontSize: '1.5rem',
+              fontWeight: 800,
+              fontSize: '1.15rem',
               margin: '0 auto 1rem',
-              boxShadow: '0 0 20px rgba(16, 185, 129, 0.4)',
             }}
           >
             PB
           </div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#FFF' }}>
+          <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-main)' }}>
             Poultry Bhai Admin
           </h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-            Private Operations & Ecommerce Portal
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+            Store Operations & Dashboard
           </p>
         </div>
 
@@ -81,10 +95,10 @@ export const LoginView: React.FC = () => {
           <div
             style={{
               padding: '0.75rem 1rem',
-              borderRadius: 'var(--radius-md)',
-              background: 'rgba(244, 63, 94, 0.15)',
-              border: '1px solid rgba(244, 63, 94, 0.3)',
-              color: '#FB7185',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#EF4444',
               fontSize: '0.82rem',
               marginBottom: '1.25rem',
               display: 'flex',
@@ -97,12 +111,12 @@ export const LoginView: React.FC = () => {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Administrator Email</label>
             <div style={{ position: 'relative' }}>
               <Mail
-                size={16}
+                size={15}
                 style={{
                   position: 'absolute',
                   left: '0.85rem',
@@ -114,7 +128,7 @@ export const LoginView: React.FC = () => {
               <input
                 type="email"
                 className="form-input"
-                style={{ paddingLeft: '2.5rem' }}
+                style={{ paddingLeft: '2.4rem' }}
                 placeholder="admin@poultrybhai.com"
                 required
                 value={email}
@@ -127,7 +141,7 @@ export const LoginView: React.FC = () => {
             <label className="form-label">Password</label>
             <div style={{ position: 'relative' }}>
               <Lock
-                size={16}
+                size={15}
                 style={{
                   position: 'absolute',
                   left: '0.85rem',
@@ -139,8 +153,8 @@ export const LoginView: React.FC = () => {
               <input
                 type="password"
                 className="form-input"
-                style={{ paddingLeft: '2.5rem' }}
-                placeholder="••••••••••••"
+                style={{ paddingLeft: '2.4rem' }}
+                placeholder="Enter password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -151,27 +165,27 @@ export const LoginView: React.FC = () => {
           <button
             type="submit"
             className="btn btn-primary"
-            style={{ width: '100%', padding: '0.75rem', marginTop: '0.5rem' }}
+            style={{ width: '100%', padding: '0.65rem', marginTop: '0.4rem' }}
             disabled={loading}
           >
             {loading ? (
               <span>Authenticating...</span>
             ) : (
               <>
-                <span>Sign In to Dashboard</span>
-                <ArrowRight size={16} />
+                <span>Sign In</span>
+                <ArrowRight size={15} />
               </>
             )}
           </button>
         </form>
 
         {/* Demo Fast Access */}
-        <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+        <div style={{ marginTop: '1.25rem', textAlign: 'center' }}>
           <div
             style={{
               position: 'relative',
               textAlign: 'center',
-              margin: '1.25rem 0',
+              margin: '1rem 0',
             }}
           >
             <div
@@ -187,14 +201,14 @@ export const LoginView: React.FC = () => {
             <span
               style={{
                 position: 'relative',
-                background: '#1E293B',
+                background: 'var(--bg-card)',
                 padding: '0 0.75rem',
-                fontSize: '0.75rem',
+                fontSize: '0.72rem',
                 color: 'var(--text-dim)',
                 textTransform: 'uppercase',
               }}
             >
-              Development & Evaluation
+              Instant Access
             </span>
           </div>
 
@@ -202,9 +216,9 @@ export const LoginView: React.FC = () => {
             type="button"
             onClick={loginAsDemoAdmin}
             className="btn btn-secondary"
-            style={{ width: '100%', padding: '0.65rem', fontSize: '0.82rem' }}
+            style={{ width: '100%', padding: '0.6rem', fontSize: '0.82rem' }}
           >
-            <ShieldCheck size={16} color="var(--primary)" />
+            <ShieldCheck size={15} color="var(--primary)" />
             <span>Launch as Super Admin (Local Evaluation)</span>
           </button>
         </div>
@@ -212,14 +226,14 @@ export const LoginView: React.FC = () => {
         {/* Security badge */}
         <div
           style={{
-            marginTop: '1.5rem',
+            marginTop: '1.25rem',
             textAlign: 'center',
             fontSize: '0.72rem',
             color: 'var(--text-dim)',
             lineHeight: 1.5,
           }}
         >
-          Protected by Supabase Auth and PostgreSQL Row Level Security (RLS). Public anonymous key authorized.
+          Protected by Supabase Auth and PostgreSQL Row Level Security (RLS).
         </div>
       </div>
     </div>
