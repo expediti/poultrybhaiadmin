@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   Package,
   Plus,
@@ -7,6 +7,9 @@ import {
   Trash2,
   Star,
   AlertTriangle,
+  UploadCloud,
+  X,
+  RefreshCw,
 } from 'lucide-react';
 import type { Product, Category } from '../types/database';
 import { useToast } from '../context/ToastContext';
@@ -15,6 +18,17 @@ import {
   updateProduct,
   deleteProduct,
 } from '../services/adminApi';
+import {
+  optimizeProductImage,
+  validateImageFile,
+  formatBytes,
+  type ImageOptimizationResult,
+} from '../utils/imageOptimizer';
+import {
+  uploadProductImage,
+  deleteStorageImageIfManaged,
+  isManagedStorageUrl,
+} from '../services/storageService';
 
 interface ProductsViewProps {
   products: Product[];
@@ -34,11 +48,22 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   onCloseCreateModal,
 }) => {
   const toast = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Image upload states
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [optimizedBlob, setOptimizedBlob] = useState<Blob | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [imageStats, setImageStats] = useState<ImageOptimizationResult | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState<boolean>(false);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isImageRemoved, setIsImageRemoved] = useState<boolean>(false);
 
   // Form state
   const [formData, setFormData] = useState<{
@@ -87,6 +112,16 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       is_featured: false,
       is_active: true,
     });
+    setSelectedImageFile(null);
+    setOptimizedBlob(null);
+    setImagePreviewUrl(null);
+    setImageStats(null);
+    setIsOptimizing(false);
+    setIsUploading(false);
+    setIsImageRemoved(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const openCreate = () => {
@@ -96,6 +131,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   };
 
   const openEdit = (prod: Product) => {
+    resetForm();
     setEditingProduct(prod);
     setFormData({
       name: prod.name,
@@ -112,6 +148,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       is_featured: prod.is_featured,
       is_active: prod.is_active,
     });
+    setImagePreviewUrl(prod.image_url || null);
     onOpenCreateModal();
   };
 
@@ -128,6 +165,52 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     }));
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      toast.error('Invalid Image', validation.error || 'Please select a valid image file.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    try {
+      setIsOptimizing(true);
+      const result = await optimizeProductImage(file, 1200, 0.82);
+      setSelectedImageFile(file);
+      setOptimizedBlob(result.blob);
+      setImageStats(result);
+      setIsImageRemoved(false);
+
+      // Create instant local preview URL
+      const preview = URL.createObjectURL(result.blob);
+      setImagePreviewUrl(preview);
+
+      toast.success(
+        'Image Optimized',
+        `Ready for upload: WebP (${formatBytes(result.optimizedSize)}, reduced by ${result.reductionPercentage}%)`
+      );
+    } catch (err: any) {
+      toast.error('Optimization Failed', err.message || 'Failed to process image file.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setSelectedImageFile(null);
+    setOptimizedBlob(null);
+    setImagePreviewUrl(null);
+    setImageStats(null);
+    setIsImageRemoved(true);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim() || !formData.sku.trim()) {
@@ -137,6 +220,42 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
     try {
       setSubmitting(true);
+
+      // 1. Resolve product image URL
+      let finalImageUrl: string | null = formData.image_url.trim() || null;
+
+      if (isImageRemoved) {
+        // If image was explicitly removed by admin
+        if (editingProduct?.image_url && isManagedStorageUrl(editingProduct.image_url)) {
+          await deleteStorageImageIfManaged(editingProduct.image_url);
+        }
+        finalImageUrl = null;
+      } else if (optimizedBlob) {
+        // Upload new optimized WebP to Supabase Storage
+        setIsUploading(true);
+        try {
+          const { publicUrl } = await uploadProductImage(
+            optimizedBlob,
+            formData.slug || formData.name || 'product'
+          );
+
+          // If updating and previously had an old storage image that's now replaced, clean up old file
+          if (editingProduct?.image_url && isManagedStorageUrl(editingProduct.image_url)) {
+            await deleteStorageImageIfManaged(editingProduct.image_url);
+          }
+
+          finalImageUrl = publicUrl;
+        } catch (uploadErr: any) {
+          toast.error('Image Upload Error', uploadErr.message || 'Failed to upload to Supabase Storage.');
+          setSubmitting(false);
+          setIsUploading(false);
+          return;
+        } finally {
+          setIsUploading(false);
+        }
+      }
+
+      // 2. Prepare payload
       const payload = {
         name: formData.name.trim(),
         slug: formData.slug.trim(),
@@ -149,11 +268,12 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         stock_quantity: Number(formData.stock_quantity),
         unit: formData.unit.trim() || 'kg',
         weight: formData.weight.trim() || null,
-        image_url: formData.image_url.trim() || null,
+        image_url: finalImageUrl,
         is_featured: formData.is_featured,
         is_active: formData.is_active,
       };
 
+      // 3. Save to Supabase
       if (editingProduct) {
         await updateProduct(editingProduct.id, payload);
         toast.success('Product Updated', `Successfully updated "${payload.name}"`);
@@ -168,6 +288,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
       toast.error('Action Failed', err.message || 'Could not save product');
     } finally {
       setSubmitting(false);
+      setIsUploading(false);
     }
   };
 
@@ -203,6 +324,12 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     if (window.confirm(`Are you sure you want to permanently delete "${prod.name}"?`)) {
       try {
         await deleteProduct(prod.id);
+
+        // Clean up storage object if image was hosted in product-images bucket
+        if (prod.image_url && isManagedStorageUrl(prod.image_url)) {
+          await deleteStorageImageIfManaged(prod.image_url);
+        }
+
         toast.success('Product Deleted', `Removed "${prod.name}" from catalog`);
         onRefresh();
       } catch (err: any) {
@@ -241,11 +368,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         }}
       >
         <div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#FFF' }}>
-            Products & Pricing Catalog
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)' }}>
+            Product Catalog & Pricing
           </h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Manage inventory units, price discounts, stock levels, and store visibility.
+            Manage store catalog, prices, discount rates, inventory, and product imagery.
           </p>
         </div>
 
@@ -255,66 +382,92 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         </button>
       </div>
 
-      {/* Filter toolbar */}
-      <div className="table-container" style={{ marginBottom: '1.5rem' }}>
+      {/* Filter / Search Bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1rem',
+          marginBottom: '1.5rem',
+          flexWrap: 'wrap',
+          background: 'var(--bg-card)',
+          padding: '1rem',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border-subtle)',
+        }}
+      >
+        <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+          <Search
+            size={16}
+            style={{
+              position: 'absolute',
+              left: '0.85rem',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: 'var(--text-dim)',
+            }}
+          />
+          <input
+            type="text"
+            className="form-input"
+            style={{ paddingLeft: '2.4rem' }}
+            placeholder="Search by product name or SKU..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Category:</span>
+          <select
+            className="form-select"
+            style={{ width: 'auto' }}
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+          >
+            <option value="All">All Categories ({categories.length})</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Status:</span>
+          <select
+            className="form-select"
+            style={{ width: 'auto' }}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as any)}
+          >
+            <option value="all">All Statuses</option>
+            <option value="active">Active Only</option>
+            <option value="inactive">Inactive Only</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Catalog Table */}
+      <div className="table-container">
         <div className="table-toolbar">
-          <div style={{ position: 'relative' }}>
-            <Search
-              size={15}
-              style={{
-                position: 'absolute',
-                left: '0.8rem',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--text-dim)',
-              }}
-            />
-            <input
-              type="text"
-              placeholder="Search by product name, SKU..."
-              className="table-search-input"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          <div className="table-filters">
-            <select
-              className="select-filter"
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-            >
-              <option value="All">All Categories</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-
-            <select
-              className="select-filter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-            >
-              <option value="all">All Statuses</option>
-              <option value="active">Active Only</option>
-              <option value="inactive">Inactive / Draft</option>
-            </select>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Showing <strong>{filteredProducts.length}</strong> of{' '}
+            <strong>{products.length}</strong> catalog items
           </div>
         </div>
 
-        {/* Table */}
         <div className="data-table-wrapper">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Product</th>
-                <th>SKU</th>
+                <th style={{ width: '38%' }}>Product / SKU</th>
                 <th>Category</th>
-                <th>Price & Discount</th>
-                <th>Stock Level</th>
-                <th>Status</th>
+                <th>Base Price</th>
+                <th>Selling Price</th>
+                <th>Stock</th>
+                <th>Store Visibility</th>
                 <th>Featured</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
@@ -322,28 +475,25 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
             <tbody>
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>
-                    <div className="empty-state">
-                      <Package size={40} className="empty-state-icon" />
-                      <div className="empty-state-title">No products found</div>
-                      <div className="empty-state-desc">
-                        Try modifying search or add your first poultry product to the catalog.
-                      </div>
-                      <button onClick={openCreate} className="btn btn-primary">
-                        Add Product
-                      </button>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '3.5rem 1rem' }}>
+                    <div style={{ color: 'var(--text-dim)', marginBottom: '0.5rem' }}>
+                      <Package size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.5 }} />
+                      <div>No products matched your search or filter criteria.</div>
                     </div>
                   </td>
                 </tr>
               ) : (
                 filteredProducts.map((prod) => {
-                  const cat = categories.find((c) => c.id === prod.category_id);
-                  const isLowStock = prod.stock_quantity <= 10;
-                  const isOutOfStock = prod.stock_quantity === 0;
+                  const hasDiscount =
+                    prod.discount_price !== null &&
+                    prod.discount_price !== undefined &&
+                    Number(prod.discount_price) < Number(prod.price);
+                  const isOutOfStock = prod.stock_quantity <= 0;
+                  const isLowStock = prod.stock_quantity > 0 && prod.stock_quantity <= 10;
 
                   return (
                     <tr key={prod.id}>
-                      {/* Product image & name */}
+                      {/* Product Name & SKU */}
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
                           <div
@@ -351,7 +501,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                               width: '42px',
                               height: '42px',
                               borderRadius: 'var(--radius-md)',
-                              background: '#0F172A',
+                              background: 'var(--bg-input)',
                               overflow: 'hidden',
                               display: 'flex',
                               alignItems: 'center',
@@ -374,79 +524,62 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                             )}
                           </div>
                           <div>
-                            <div style={{ fontWeight: 600, color: '#FFF' }}>{prod.name}</div>
+                            <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{prod.name}</div>
                             {prod.weight && (
                               <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                                 Pack: {prod.weight}
                               </div>
                             )}
+                            <span className="sku-tag">{prod.sku}</span>
                           </div>
                         </div>
                       </td>
 
-                      {/* SKU */}
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        {prod.sku}
-                      </td>
-
                       {/* Category */}
                       <td>
-                        <span
-                          style={{
-                            fontSize: '0.78rem',
-                            color: cat ? '#A78BFA' : 'var(--text-dim)',
-                            background: cat ? 'rgba(139, 92, 246, 0.1)' : 'transparent',
-                            padding: '0.2rem 0.55rem',
-                            borderRadius: 'var(--radius-sm)',
-                            border: cat ? '1px solid rgba(139, 92, 246, 0.2)' : 'none',
-                          }}
-                        >
-                          {cat?.name || 'Unassigned'}
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                          {prod.category?.name || 'Uncategorized'}
                         </span>
                       </td>
 
-                      {/* Price & Discount */}
+                      {/* Base Price */}
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-                          {prod.discount_price !== null && prod.discount_price < prod.price ? (
-                            <>
-                              <span style={{ fontWeight: 700, color: '#34D399', fontSize: '0.95rem' }}>
-                                ₹{Number(prod.discount_price).toLocaleString('en-IN')}
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: '0.75rem',
-                                  color: 'var(--text-dim)',
-                                  textDecoration: 'line-through',
-                                }}
-                              >
-                                ₹{Number(prod.price).toLocaleString('en-IN')}
-                              </span>
-                            </>
-                          ) : (
-                            <span style={{ fontWeight: 700, color: '#FFF', fontSize: '0.95rem' }}>
-                              ₹{Number(prod.price).toLocaleString('en-IN')}
-                            </span>
-                          )}
-                          <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                            /{prod.unit}
-                          </span>
-                        </div>
+                        <span
+                          style={{
+                            fontSize: '0.9rem',
+                            fontWeight: 600,
+                            color: hasDiscount ? 'var(--text-dim)' : 'var(--text-main)',
+                            textDecoration: hasDiscount ? 'line-through' : 'none',
+                          }}
+                        >
+                          ₹{Number(prod.price).toFixed(2)}
+                        </span>
                       </td>
 
-                      {/* Stock Level */}
+                      {/* Selling / Discount Price */}
+                      <td>
+                        {hasDiscount ? (
+                          <span style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--primary)' }}>
+                            ₹{Number(prod.discount_price).toFixed(2)}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>—</span>
+                        )}
+                      </td>
+
+                      {/* Stock Quantity */}
                       <td>
                         <span
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '0.35rem',
-                            padding: '0.25rem 0.6rem',
+                            padding: '0.2rem 0.6rem',
                             borderRadius: '999px',
-                            fontWeight: 700,
                             fontSize: '0.78rem',
+                            fontWeight: 700,
                             background: isOutOfStock
-                              ? 'rgba(244, 63, 94, 0.15)'
+                              ? 'rgba(239, 68, 68, 0.15)'
                               : isLowStock
                               ? 'rgba(245, 158, 11, 0.15)'
                               : 'rgba(16, 185, 129, 0.15)',
@@ -549,7 +682,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
             </div>
 
             <form onSubmit={handleSubmit}>
-              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Product Name *</label>
@@ -661,27 +794,182 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   </div>
                 </div>
 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Package Weight / Specs</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. 50 kg, 5 Liters, 175W"
-                      value={formData.weight}
-                      onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
-                    />
+                <div className="form-group">
+                  <label className="form-label">Package Weight / Specs</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. 50 kg, 5 Liters, 175W"
+                    value={formData.weight}
+                    onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+                  />
+                </div>
+
+                {/* Local Image Upload Area connected to Supabase Storage */}
+                <div className="form-group">
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '0.4rem',
+                    }}
+                  >
+                    <label className="form-label" style={{ marginBottom: 0 }}>
+                      Product Image (Local Upload → Supabase Storage)
+                    </label>
+                    {imageStats && (
+                      <span style={{ fontSize: '0.74rem', color: '#34D399', fontWeight: 600 }}>
+                        WebP Optimized ({formatBytes(imageStats.optimizedSize)}, -{imageStats.reductionPercentage}%)
+                      </span>
+                    )}
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Product Image Path / URL</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="/assets/products/starter-feed.jpg"
-                      value={formData.image_url}
-                      onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                    />
-                  </div>
+
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{ display: 'none' }}
+                    accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+                    onChange={handleFileSelect}
+                  />
+
+                  {imagePreviewUrl ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '1.25rem',
+                        padding: '0.85rem',
+                        background: 'var(--bg-input)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-md)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '72px',
+                          height: '72px',
+                          borderRadius: 'var(--radius-sm)',
+                          overflow: 'hidden',
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border-subtle)',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <img
+                          src={imagePreviewUrl}
+                          alt="Product Preview"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      </div>
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                          <span
+                            style={{
+                              fontSize: '0.84rem',
+                              fontWeight: 600,
+                              color: 'var(--text-main)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {selectedImageFile ? selectedImageFile.name : 'Current Catalog Image'}
+                          </span>
+                          {selectedImageFile && (
+                            <span
+                              style={{
+                                fontSize: '0.68rem',
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#34D399',
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '4px',
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
+                              WebP Ready
+                            </span>
+                          )}
+                        </div>
+                        <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
+                          {selectedImageFile && imageStats
+                            ? `Original: ${formatBytes(imageStats.originalSize)} → WebP: ${formatBytes(imageStats.optimizedSize)}`
+                            : 'Hosted on Supabase Storage bucket (product-images)'}
+                        </p>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.55rem' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isOptimizing || submitting}
+                          >
+                            <UploadCloud size={13} />
+                            <span>Change Image</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            style={{ color: '#FB7185', padding: '0.35rem' }}
+                            onClick={handleRemoveImage}
+                            title="Remove image"
+                            disabled={isOptimizing || submitting}
+                          >
+                            <X size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => !isOptimizing && fileInputRef.current?.click()}
+                      style={{
+                        border: '1.5px dashed var(--border-subtle)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '1.5rem',
+                        textAlign: 'center',
+                        background: 'var(--bg-input)',
+                        cursor: isOptimizing ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      {isOptimizing ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                          <RefreshCw size={24} color="var(--primary)" style={{ animation: 'spin 1s linear infinite' }} />
+                          <span style={{ fontSize: '0.82rem', color: 'var(--text-main)', fontWeight: 600 }}>
+                            Compressing & Converting to WebP...
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }}>
+                          <div
+                            style={{
+                              width: '42px',
+                              height: '42px',
+                              borderRadius: '50%',
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'var(--text-muted)',
+                              marginBottom: '0.2rem',
+                            }}
+                          >
+                            <UploadCloud size={20} />
+                          </div>
+                          <div style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                            Choose an image from your computer
+                          </div>
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                            JPG, PNG, WebP, AVIF up to 15 MB • Automatically optimized & resized for store
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -730,16 +1018,25 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                   type="button"
                   onClick={onCloseCreateModal}
                   className="btn btn-secondary"
-                  disabled={submitting}
+                  disabled={submitting || isOptimizing}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
-                  {submitting
-                    ? 'Saving...'
-                    : editingProduct
-                    ? 'Update Product'
-                    : 'Create Product'}
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={submitting || isOptimizing}
+                >
+                  {submitting ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                      <span>{isUploading ? 'Uploading Image to Supabase...' : 'Saving Product...'}</span>
+                    </div>
+                  ) : editingProduct ? (
+                    'Update Product'
+                  ) : (
+                    'Create Product'
+                  )}
                 </button>
               </div>
             </form>

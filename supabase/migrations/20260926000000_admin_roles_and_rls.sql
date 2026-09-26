@@ -194,9 +194,56 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ====================================================================
+-- 13. STORAGE BUCKET: product-images & STORAGE RLS POLICIES
+-- ====================================================================
+-- Dedicated public bucket for product imagery (WebP, JPG, PNG)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'product-images',
+    'product-images',
+    true,
+    5242880,
+    ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']
+)
+ON CONFLICT (id) DO UPDATE SET
+    public = true,
+    file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+-- Public read access: Customers and storefront can load product images
+DROP POLICY IF EXISTS "Public can view product-images bucket" ON storage.objects;
+CREATE POLICY "Public can view product-images bucket"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'product-images');
+
+-- Admin write access: Only authorized admins can upload, update, or remove images
+DROP POLICY IF EXISTS "Admins can upload to product-images" ON storage.objects;
+CREATE POLICY "Admins can upload to product-images"
+    ON storage.objects FOR INSERT
+    WITH CHECK (
+        bucket_id = 'product-images'
+        AND public.is_admin()
+    );
+
+DROP POLICY IF EXISTS "Admins can update product-images" ON storage.objects;
+CREATE POLICY "Admins can update product-images"
+    ON storage.objects FOR UPDATE
+    USING (bucket_id = 'product-images' AND public.is_admin())
+    WITH CHECK (bucket_id = 'product-images' AND public.is_admin());
+
+DROP POLICY IF EXISTS "Admins can delete product-images" ON storage.objects;
+CREATE POLICY "Admins can delete product-images"
+    ON storage.objects FOR DELETE
+    USING (
+        bucket_id = 'product-images'
+        AND public.is_admin()
+    );
+
+-- ====================================================================
 -- INSTRUCTIONS TO ACTIVATE YOUR ADMIN ACCESS:
 -- 1. Create your admin user in Supabase Dashboard -> Authentication -> Users -> "Add User" (Create user with email + password).
 -- 2. Run this migration in your Supabase SQL Editor.
 -- 3. In the SQL Editor, execute:
 --    SELECT public.register_admin_email('YOUR_EMAIL@EXAMPLE.COM');
 -- ====================================================================
+
