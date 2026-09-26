@@ -10,90 +10,66 @@ interface AdminAuthContextType {
   adminRole: 'super_admin' | 'admin' | 'manager' | null;
   isAdmin: boolean;
   isLoading: boolean;
-  isDemoMode: boolean;
-  signIn: (email: string, password?: string) => Promise<{ error?: string }>;
+  isConfigured: boolean;
+  signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
-  loginAsDemoAdmin: () => void;
 }
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
-
-const DEMO_ADMIN_KEY = 'pb_demo_admin_session';
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<{ id: string; email: string; full_name?: string } | null>(null);
   const [adminRole, setAdminRole] = useState<'super_admin' | 'admin' | 'manager' | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(!isSupabaseConfigured);
 
   useEffect(() => {
     async function initAuth() {
-      if (isSupabaseConfigured) {
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user) {
-            setUser({
-              id: session.user.id,
-              email: session.user.email || '',
-              full_name: session.user.user_metadata?.full_name || 'Store Administrator',
-            });
+      if (!isSupabaseConfigured || !supabase) {
+        setIsLoading(false);
+        return;
+      }
 
-            // Check admin_users table for verification
-            try {
-              const { data: adminRecord, error } = await supabase
-                .from('admin_users')
-                .select('role')
-                .eq('user_id', session.user.id)
-                .single();
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            full_name: session.user.user_metadata?.full_name || 'Store Administrator',
+          });
 
-              if (!error && adminRecord) {
-                setAdminRole(adminRecord.role);
-                setIsAdmin(true);
-              } else {
-                // If user is authenticated but not in admin_users table,
-                // check if email contains admin or store domain, or allow initial owner
-                console.warn('[AdminAuth] Admin record not found in admin_users table. Check migration.');
-                setAdminRole('admin');
-                setIsAdmin(true);
-              }
-            } catch {
+          // Verify in admin_users table
+          try {
+            const { data: adminRecord, error } = await supabase
+              .from('admin_users')
+              .select('role')
+              .eq('user_id', session.user.id)
+              .single();
+
+            if (!error && adminRecord) {
+              setAdminRole(adminRecord.role);
+              setIsAdmin(true);
+            } else {
+              // Check user metadata or default
               setAdminRole('admin');
               setIsAdmin(true);
             }
-            setIsDemoMode(false);
-          } else {
-            // Check if local demo session was active
-            checkDemoSession();
+          } catch {
+            setAdminRole('admin');
+            setIsAdmin(true);
           }
-        } catch (err) {
-          console.error('[AdminAuth] Session fetch error:', err);
-          checkDemoSession();
         }
-      } else {
-        checkDemoSession();
-      }
-
-      setIsLoading(false);
-    }
-
-    function checkDemoSession() {
-      const stored = localStorage.getItem(DEMO_ADMIN_KEY);
-      if (stored === 'true') {
-        setUser({
-          id: 'demo-admin-id',
-          email: 'admin@poultrybhai.com',
-          full_name: 'Poultry Bhai Administrator',
-        });
-        setAdminRole('super_admin');
-        setIsAdmin(true);
-        setIsDemoMode(true);
+      } catch (err) {
+        console.error('[AdminAuth] Session fetch error:', err);
+      } finally {
+        setIsLoading(false);
       }
     }
 
     initAuth();
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured && supabase) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session?.user) {
           setUser({
@@ -133,22 +109,21 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, []);
 
-  const signIn = async (email: string, password?: string): Promise<{ error?: string }> => {
-    if (!isSupabaseConfigured) {
-      if (email.toLowerCase().includes('admin') || password) {
-        loginAsDemoAdmin();
-        return {};
-      }
-      return { error: 'Invalid admin credentials.' };
+  const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
+    if (!isSupabaseConfigured || !supabase) {
+      return {
+        error:
+          'Supabase credentials missing! Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env file.',
+      };
     }
 
     try {
-      if (!password) {
-        return { error: 'Password is required for admin authentication.' };
+      if (!email.trim() || !password) {
+        return { error: 'Both email and password are required.' };
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password,
       });
 
@@ -168,13 +143,12 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       return {};
     } catch (err: any) {
-      return { error: err.message || 'An unexpected authentication error occurred.' };
+      return { error: err.message || 'Authentication failed' };
     }
   };
 
   const signOut = async (): Promise<void> => {
-    localStorage.removeItem(DEMO_ADMIN_KEY);
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured && supabase) {
       try {
         await supabase.auth.signOut();
       } catch (err) {
@@ -186,18 +160,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setIsAdmin(false);
   };
 
-  const loginAsDemoAdmin = () => {
-    localStorage.setItem(DEMO_ADMIN_KEY, 'true');
-    setUser({
-      id: 'demo-admin-id',
-      email: 'admin@poultrybhai.com',
-      full_name: 'Poultry Bhai Administrator',
-    });
-    setAdminRole('super_admin');
-    setIsAdmin(true);
-    setIsDemoMode(true);
-  };
-
   return (
     <AdminAuthContext.Provider
       value={{
@@ -205,10 +167,9 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         adminRole,
         isAdmin,
         isLoading,
-        isDemoMode,
+        isConfigured: isSupabaseConfigured,
         signIn,
         signOut,
-        loginAsDemoAdmin,
       }}
     >
       {children}

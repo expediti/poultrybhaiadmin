@@ -42,7 +42,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   pendingOrdersCount = 0,
   lowStockCount = 0,
 }) => {
-  const { signOut, isDemoMode, adminRole } = useAdminAuth();
+  const { signOut, isConfigured, adminRole } = useAdminAuth();
 
   const navItems: {
     id: AdminTab;
@@ -158,9 +158,9 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Database size={14} color={isDemoMode ? '#FBBF24' : '#34D399'} />
+              <Database size={14} color={!isConfigured ? '#FBBF24' : '#34D399'} />
               <span style={{ color: 'var(--text-muted)' }}>
-                {isDemoMode ? 'Demo Mode' : 'Live Supabase'}
+                {!isConfigured ? 'Not Configured' : 'Live Supabase'}
               </span>
             </div>
             <span
@@ -168,7 +168,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 fontSize: '0.65rem',
                 textTransform: 'uppercase',
                 fontWeight: 700,
-                color: isDemoMode ? '#FBBF24' : '#34D399',
+                color: !isConfigured ? '#FBBF24' : '#34D399',
               }}
             >
               {adminRole || 'ADMIN'}

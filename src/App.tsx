@@ -76,7 +76,7 @@ const AdminAppContent: React.FC = () => {
       setCustomers(custs);
     } catch (err: any) {
       console.error('Failed to load admin data:', err);
-      toast.error('Data Sync Warning', 'Failed to synchronize live records. Operating with local cache.');
+      toast.error('Data Sync Error', err.message || 'Failed to synchronize live records from Supabase.');
     }
   }, [toast]);
 

@@ -27,7 +27,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   onRefresh,
   onOpenSettings,
 }) => {
-  const { user, adminRole, isDemoMode } = useAdminAuth();
+  const { user, adminRole, isConfigured } = useAdminAuth();
   const { theme, toggleTheme } = useTheme();
 
   return (
@@ -70,17 +70,17 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
 
         {/* Backend Status Pill */}
         <div
-          className={`backend-status-pill ${isDemoMode ? 'demo' : ''}`}
+          className={`backend-status-pill ${!isConfigured ? 'demo' : ''}`}
           onClick={onOpenSettings}
           style={{ cursor: 'pointer' }}
           title={
-            isDemoMode
-              ? 'Click to configure live Supabase URL and Anon Key'
+            !isConfigured
+              ? 'Click to configure live Supabase URL and Anon Key in .env'
               : 'Supabase Connected & Live'
           }
         >
           <span className="status-dot" />
-          <span>{isDemoMode ? 'Demo Fallback' : 'Supabase Active'}</span>
+          <span>{!isConfigured ? 'Not Configured' : 'Supabase Active'}</span>
         </div>
 
         {/* Customer Storefront Link */}
